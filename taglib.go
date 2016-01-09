@@ -13,6 +13,8 @@ import "C"
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -37,6 +39,10 @@ const (
 )
 
 var (
+	defaultFileExtensions = [28]string{".mp3", ".ogg", ".flac", ".oga", ".mpc", ".wv", ".spx",
+		".tta", ".m4a", ".m4r", ".m4b", ".m4p", ".3g2", ".mp4", ".m4v", ".wma",
+		".asf", ".aif", ".aiff", ".wav", ".ape", ".mod", ".module", ".nst",
+		".wow", ".s3m", ".it", ".xm"}
 	ErrInvalid = errors.New("invalid file")
 	glock      = sync.Mutex{}
 )
@@ -104,14 +110,39 @@ type File struct {
 
 // Reads and parses a music file. Returns an error if the provided filename is
 // not a valid file.
-func Read(filename string) (*File, error) {
+
+func valid_ext(filename string) bool {
+	ext := filepath.Ext(filename)
+	for _, resolv_ext := range defaultFileExtensions {
+		if ext == resolv_ext {
+			return true
+		}
+	}
+	return false
+}
+func Read(filename string, args ...interface{}) (*File, error) {
+
+	if !valid_ext(filename) {
+		return nil, fmt.Errorf("%v file has no valid extantion", filename)
+	}
 	glock.Lock()
 	defer glock.Unlock()
+	cs_filename := C.CString(string(filename))
+	defer C.free(unsafe.Pointer(cs_filename))
 
-	cs := C.CString(filename)
-	defer C.free(unsafe.Pointer(cs))
+	if len(args) == 1 {
+		cs_buffer := C.CString(string(args[0].([]byte)))
+		defer C.free(unsafe.Pointer(cs_buffer))
+		fp := C.taglib_nemaed_filestream_new(cs_filename, cs_buffer, C.uint(len(args[0].([]byte))))
+		return &File{
+			fp:    fp,
+			tag:   C.taglib_file_tag(fp),
+			props: C.taglib_file_audioproperties(fp),
+		}, nil
 
-	fp := C.taglib_file_new(cs)
+	}
+
+	fp := C.taglib_file_new(cs_filename)
 	if fp == nil || C.taglib_file_is_valid(fp) == 0 {
 		return nil, ErrInvalid
 	}
@@ -311,4 +342,3 @@ func (file *File) SetTrack(i int) {
 	ci := C.uint(i)
 	C.taglib_tag_set_track(file.tag, ci)
 }
-
